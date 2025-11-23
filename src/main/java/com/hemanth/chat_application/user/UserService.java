@@ -6,6 +6,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @AllArgsConstructor
 public class UserService {
@@ -16,7 +19,7 @@ public class UserService {
         return userRepository.existsByEmail(email);
     }
 
-    public User registerUserAfterOtpVerified(String email, String username) {
+    public void registerUserAfterOtpVerified(String email, String username) {
         if (userRepository.existsByEmail(email)) {
             throw new IllegalStateException("Email already registered");
         }
@@ -27,10 +30,31 @@ public class UserService {
                 .status(null)
                 .build();
 
-        return userRepository.save(user);
+        userRepository.save(user);
     }
 
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(email);
+    }
+
+    public List<UserResponse> searchUsers(String query) {
+        return userRepository.findByUsernameContainingIgnoreCase(query)
+                .stream()
+                .map(this::mapToUserResponse)
+                .collect(Collectors.toList());
+    }
+
+    private UserResponse mapToUserResponse(User user) {
+        return UserResponse.builder()
+                .id(user.getId())
+                .email(user.getEmail())
+                .username(user.getUsername())
+                .profilePicture(user.getProfilePicture())
+                .bio(user.getBio())
+                .status(user.getStatus() != null ? user.getStatus().toString() : null)
+                .isActive(user.getIsActive())
+                .createdAt(user.getCreatedAt())
+                .lastSeen(user.getLastSeen())
+                .build();
     }
 }

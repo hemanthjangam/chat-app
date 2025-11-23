@@ -55,7 +55,11 @@ public class AuthController {
             userService.registerUserAfterOtpVerified(request.getEmail(), request.getUsername());
             return ResponseEntity.ok(new ApiResponse(true, "Registration successful"));
         } else {
-            return ResponseEntity.ok(new ApiResponse(true, "Login successful"));
+            // For LOGIN, return user data
+            var user = userService.findByEmail(email)
+                    .orElseThrow(() -> new IllegalStateException("User not found"));
+
+            return ResponseEntity.ok(new LoginResponse(true, "Login successful", user));
         }
     }
 }

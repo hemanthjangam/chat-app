@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>WebSocket Chat Test Client — Updated</title>
+
+    <!-- SockJS + Stomp (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; max-width:900px; margin:30px auto; padding:20px; background:#f7f7f7;}
+        .box{ background:#fff; padding:16px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.06); margin-bottom:16px;}
+        label{ display:inline-block; width:120px;}
+        input,textarea,button{ padding:8px; margin:6px 0; border-radius:6px; border:1px solid #ddd; font-size:14px;}
+        #messageLog{ height:300px; overflow:auto; background:#fafafa; padding:10px; border:1px solid #eee; font-family:monospace; font-size:12px;}
+        .sys{ color:#555 } .err{ color:#b00020 } .ok{ color:#0b7 } .msg{ color:#034 }
+    </style>
+</head>
+<body>
+<div class="box">
+    <h2>WebSocket Test Client (StompJs + SockJS)</h2>
+    <div>
+        <label>Server URL</label>
+        <input id="serverUrl" value="http://localhost:8080/ws" style="width:420px" />
+    </div>
+    <div>
+        <label>Your User ID</label>
+        <input id="userId" type="number" value="1" />
+    </div>
+    <div id="status" class="sys">Status: disconnected</div>
+    <div style="margin-top:8px">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+</div>
+
+<div class="box">
+    <h3>Send Message</h3>
+    <div><label>Receiver ID</label><input id="receiverId" type="number" value="2" /></div>
+    <div><label>Message</label><textarea id="messageContent" rows="3" style="width:600px"></textarea></div>
+    <button id="sendBtn" disabled>Send</button>
+    <button id="typingBtn" disabled>Typing</button>
+</div>
+
+<div class="box">
+    <h3>Message Log</h3>
+    <button id="clearBtn">Clear</button>
+    <pre id="messageLog"></pre>
+</div>
+
+<script>
+    (function(){
+      const StompJs = window.StompJs; // UMD exposes StompJs
+      const SockJS = window.SockJS;
+
+      let client = null;
+      let currentUserId = null;
+
+      function logLine(text, cls='sys') {
+        const el = document.getElementById('messageLog');
+        const t = new Date().toLocaleTimeString();
+        el.textContent += `[${t}] ${text}\n`;
+        el.scrollTop = el.scrollHeight;
+        if (cls === 'err') console.error(text); else console.log(text);
+      }
+
+      function setStatus(txt, ok=false) {
+        const s = document.getElementById('status');
+        s.textContent = 'Status: ' + txt;
+        s.style.color = ok ? '#0b7' : '#555';
+      }
+
+      function createClient(urlWithQuery) {
+        // Use StompJs.Client + webSocketFactory -> ensures stomp runs OVER SockJS
+        const c = new StompJs.Client({
+          webSocketFactory: () => new SockJS(urlWithQuery),
+          // heartbeats (ms)
+          heartbeatIncoming: 10000,
+          heartbeatOutgoing: 10000,
+          reconnectDelay: 0, // no auto reconnect (we'll do manual)
+          debug: function(msg) {
+            // show wire-level debug in console and log
+            logLine('[STOMP DEBUG] ' + msg);
+          },
+          onConnect: frame => {
+            logLine('STOMP CONNECTED: ' + (frame ? frame.headers['server'] || 'SERVER' : 'frame'));
+            setStatus('connected', true);
+            document.getElementById('disconnectBtn').disabled = false;
+            document.getElementById('connectBtn').disabled = true;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('typingBtn').disabled = false;
+
+            // subscribe to user queues
+            client.subscribe('/user/queue/messages', (m) => {
+              try { const payload = JSON.parse(m.body); logLine('RECV message: ' + JSON.stringify(payload), 'msg'); }
+              catch(_) { logLine('RECV raw: ' + m.body, 'msg'); }
+            });
+
+            client.subscribe('/user/queue/notifications', (m) => logLine('NOTIF: ' + m.body));
+            client.subscribe('/user/queue/typing', (m) => logLine('TYPING: ' + m.body));
+            client.subscribe('/topic/user-status', (m) => logLine('USER-STATUS: ' + m.body));
+          },
+          onStompError: frame => {
+            logLine('STOMP ERROR: ' + JSON.stringify(frame), 'err');
+            setStatus('stomp-error', false);
+          },
+          onWebSocketClose: evt => {
+            logLine('WebSocket closed: ' + (evt ? evt.code + ' ' + evt.reason : 'closed'), 'err');
+            setStatus('disconnected', false);
+            document.getElementById('disconnectBtn').disabled = true;
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('typingBtn').disabled = true;
+          },
+          onWebSocketError: evt => {
+            logLine('WebSocket error: ' + JSON.stringify(evt), 'err');
+          }
+        });
+        return c;
+      }
+
+      // UI bindings
+      document.getElementById('connectBtn').addEventListener('click', () => {
+        const baseUrl = document.getElementById('serverUrl').value.trim();
+        currentUserId = parseInt(document.getElementById('userId').value, 10);
+        if (!baseUrl) { alert('server url'); return; }
+        if (!currentUserId) { alert('user id'); return; }
+
+        // make sure query param included (interceptor reads it)
+        const urlWithQuery = baseUrl + '?userId=' + encodeURIComponent(currentUserId);
+        logLine('Connecting to: ' + urlWithQuery);
+        setStatus('connecting...');
+
+        // create and activate client
+        client = createClient(urlWithQuery);
+        client.activate(); // starts SockJS + STOMP handshake
+      });
+
+      document.getElementById('disconnectBtn').addEventListener('click', () => {
+        if (client && client.active) {
+          client.deactivate().then(() => {
+            logLine('Client deactivated');
+            setStatus('disconnected');
+          }).catch(err => logLine('Error during deactivate: ' + err, 'err'));
+        }
+      });
+
+      document.getElementById('sendBtn').addEventListener('click', () => {
+        if (!client || !client.connected) { alert('Not connected'); return; }
+        const receiverId = parseInt(document.getElementById('receiverId').value, 10);
+        const content = document.getElementById('messageContent').value.trim();
+        if (!content) return;
+        const payload = { senderId: currentUserId, receiverId, content };
+        client.publish({ destination: '/app/chat.send', body: JSON.stringify(payload) });
+        logLine('SENT: ' + JSON.stringify(payload), 'ok');
+        document.getElementById('messageContent').value = '';
+      });
+
+      document.getElementById('typingBtn').addEventListener('click', () => {
+        if (!client || !client.connected) return;
+        const receiverId = parseInt(document.getElementById('receiverId').value, 10);
+        const payload = { senderId: currentUserId, receiverId, isTyping: true };
+        client.publish({ destination: '/app/chat.typing', body: JSON.stringify(payload) });
+        logLine('SENT TYPING -> ' + receiverId);
+      });
+
+      document.getElementById('clearBtn').addEventListener('click', () => {
+        document.getElementById('messageLog').textContent = '';
+      });
+
+      // small startup hint
+      logLine('Client ready. Use Connect. If nothing connects, paste console output here.');
+    })();
+</script>
+</body>
+</html>

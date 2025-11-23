@@ -30,10 +30,10 @@ public class User {
     private String bio;
 
     @UpdateTimestamp
-    private LocalDateTime last_seen;
+    private LocalDateTime lastSeen;
 
     @CreationTimestamp
-    private LocalDateTime created_at;
+    private LocalDateTime createdAt;
 
     @Enumerated(EnumType.STRING)
     private Status status;

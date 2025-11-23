@@ -11,7 +11,6 @@ import java.util.Optional;
 public interface OtpTokenRepository extends JpaRepository<OtpToken, Long> {
     List<OtpToken> findByEmailAndCreatedAtAfter(String email, LocalDateTime after);
 
-    // Fixed method name - was incorrectly named
     @Query("SELECT o FROM OtpToken o WHERE o.email = :email AND o.otp = :otp AND o.purpose = :purpose ORDER BY o.createdAt DESC LIMIT 1")
     Optional<OtpToken> findTopByEmailAndOtpAndPurposeOrderByCreatedAtDesc(
             @Param("email") String email,
